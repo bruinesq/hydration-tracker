@@ -61,8 +61,8 @@ export default function ManualEntryForm({ onAdd, disabled }: ManualEntryFormProp
           <input
             id="manual-oz"
             type="number"
-            min={0.1}
-            step={0.5}
+            min={0}
+            step="any"
             value={oz}
             onChange={(e) => setOz(e.target.value)}
             className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-sky-400 dark:border-slate-600 dark:bg-slate-900"
