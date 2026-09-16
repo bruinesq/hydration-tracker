@@ -246,7 +246,15 @@ export default function DashboardPage() {
               key={l.id}
               className="flex items-center justify-between rounded-xl bg-white/80 px-4 py-2 text-sm shadow-sm dark:bg-slate-800/80"
             >
-              <span>{l.label}</span>
+              <span className="flex flex-col">
+                <span>{l.label}</span>
+                <span className="text-xs text-slate-400">
+                  {new Date(l.loggedAt).toLocaleTimeString(undefined, {
+                    hour: "numeric",
+                    minute: "2-digit",
+                  })}
+                </span>
+              </span>
               <span className="flex items-center gap-3">
                 <span className="font-semibold text-sky-600 dark:text-sky-300">
                   {Math.round(l.ozAmount * 10) / 10} fl oz

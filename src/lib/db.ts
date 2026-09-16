@@ -158,9 +158,25 @@ function mapDrink(r: DrinkRow): DrinkType {
   return { id: r.id, name: r.name, icon: r.icon, defaultOz: r.default_oz, isCustom: r.is_custom };
 }
 
+// Quick-add display order/visibility, independent of insertion order in the
+// database (12 oz Water was added after the original seed, so its id sorts
+// last - this puts it right after the 8 oz cup instead). Hidden entries stay
+// in the database untouched; they're just left out of the quick-add menu.
+const DRINK_DISPLAY_ORDER: Record<string, number> = {
+  Water: 0,
+  "Water (12 oz)": 1,
+  Coffee: 2,
+  Tea: 3,
+  Juice: 4,
+};
+const HIDDEN_DRINK_NAMES = new Set(["Soda", "Sports Drink", "Milk"]);
+
 export async function getDrinkTypes(): Promise<DrinkType[]> {
   const result = (await sql`SELECT * FROM drink_types ORDER BY id`) as RawResult;
-  return toObjects<DrinkRow>(result).map(mapDrink);
+  return toObjects<DrinkRow>(result)
+    .map(mapDrink)
+    .filter((d) => !HIDDEN_DRINK_NAMES.has(d.name))
+    .sort((a, b) => (DRINK_DISPLAY_ORDER[a.name] ?? 99) - (DRINK_DISPLAY_ORDER[b.name] ?? 99));
 }
 
 // ── Food items ─────────────────────────────────────────────────────
