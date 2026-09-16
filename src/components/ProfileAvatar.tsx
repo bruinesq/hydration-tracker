@@ -1,5 +1,3 @@
-"use client";
-
 interface ProfileAvatarProps {
   name: string;
   color: string;

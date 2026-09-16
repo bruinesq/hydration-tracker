@@ -1,7 +1,4 @@
-"use client";
-
-import Link from "next/link";
-import { useParams } from "next/navigation";
+import { Link, useParams } from "react-router-dom";
 import { useCallback, useEffect, useRef, useState } from "react";
 import WaterGlass from "@/components/WaterGlass";
 import Bubbles from "@/components/Bubbles";
@@ -12,6 +9,7 @@ import ManualEntryForm from "@/components/ManualEntryForm";
 import GoalStepper from "@/components/GoalStepper";
 import ReminderPopup from "@/components/ReminderPopup";
 import ProfileAvatar from "@/components/ProfileAvatar";
+import { createLog, deleteLog, getDrinkTypes, getFoodItems, getLogsForDay, getProfiles } from "@/lib/db";
 import type { DrinkType, FoodItem, LogEntry, UserProfile } from "@/lib/types";
 import { effectiveGoal } from "@/lib/types";
 import { localDateKey, localDayStartMs } from "@/lib/date";
@@ -43,13 +41,13 @@ export default function DashboardPage() {
     loadedDateKey.current = localDateKey(new Date());
     const dayStartMs = localDayStartMs();
     const [profilesRes, drinksRes, foodsRes, logsRes] = await Promise.all([
-      fetch("/api/profiles").then((r) => r.json()),
-      fetch("/api/drink-types").then((r) => r.json()),
-      fetch("/api/food-items").then((r) => r.json()),
-      fetch(`/api/logs?userId=${userId}&dayStartMs=${dayStartMs}`).then((r) => r.json()),
+      getProfiles(),
+      getDrinkTypes(),
+      getFoodItems(),
+      getLogsForDay(userId, dayStartMs),
     ]);
     setProfiles(profilesRes);
-    setUser(profilesRes.find((p: UserProfile) => p.id === userId) ?? null);
+    setUser(profilesRes.find((p) => p.id === userId) ?? null);
     setDrinkTypes(drinksRes);
     setFoods(foodsRes);
     setTodayLogs(logsRes);
@@ -57,15 +55,11 @@ export default function DashboardPage() {
 
   useEffect(() => {
     hasCelebrated.current = false;
-    // Standard fetch-on-mount pattern: loadAll() awaits its requests before
-    // calling any setState, so this doesn't cause a synchronous cascading
-    // render - safe to suppress this rule here.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadAll();
   }, [loadAll]);
 
   // Daily reset: the meter is always just "today's logs" (see loadAll), so
-  // there's nothing to reset server-side - but if this tab is left open
+  // there's nothing to reset in the database - but if this tab is left open
   // past midnight, poll for the local calendar day changing and refetch so
   // the glass drops back to empty without needing a manual refresh.
   useEffect(() => {
@@ -80,12 +74,9 @@ export default function DashboardPage() {
 
   useEffect(() => {
     // Deliberately effect-based rather than a lazy useState initializer:
-    // this reads a browser-only API (Notification), and the server always
-    // renders the "default" state - doing this in an effect keeps the
-    // server and first client render identical (no hydration mismatch),
-    // then updates once we're safely past hydration.
+    // this reads a browser-only API (Notification), and doing it in an
+    // effect avoids any risk of it running before the DOM/window is ready.
     if (typeof window === "undefined" || !("Notification" in window)) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setNotifPermission("unsupported");
       return;
     }
@@ -95,8 +86,8 @@ export default function DashboardPage() {
   // Hydration reminder: if it's between 7am-7pm and nothing has been logged
   // in the last 3 hours (and we haven't already reminded in the last 3
   // hours), nudge the user. This only fires while this tab is open - a true
-  // notification when the app/browser is fully closed would need a
-  // service worker + push subscriptions, which is a bigger addition.
+  // notification when the browser is fully closed would need a service
+  // worker + push subscriptions, which is a bigger addition.
   useEffect(() => {
     const interval = setInterval(() => {
       const now = new Date();
@@ -142,20 +133,13 @@ export default function DashboardPage() {
   }, [totalOz, goal]);
 
   async function addLog(entryType: "drink" | "food", referenceId: number | null, label: string, ozAmount: number) {
-    const res = await fetch("/api/logs", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId, entryType, referenceId, label, ozAmount }),
-    });
-    if (res.ok) {
-      const created = await res.json();
-      setTodayLogs((prev) => [created, ...prev]);
-    }
+    const created = await createLog({ userId, entryType, referenceId, label, ozAmount });
+    setTodayLogs((prev) => [created, ...prev]);
   }
 
-  async function deleteLog(id: number) {
+  async function removeLog(id: number) {
     setTodayLogs((prev) => prev.filter((l) => l.id !== id));
-    await fetch(`/api/logs/${id}`, { method: "DELETE" });
+    await deleteLog(id);
   }
 
   function requestNotifications() {
@@ -178,11 +162,11 @@ export default function DashboardPage() {
       <ReminderPopup show={showReminder} onDismiss={() => setShowReminder(false)} />
 
       <header className="z-10 flex items-center justify-between">
-        <Link href="/" className="text-sm text-sky-500 hover:underline">
+        <Link to="/" className="text-sm text-sky-500 hover:underline">
           ← Switch profile
         </Link>
         <Link
-          href={`/u/${userId}/history`}
+          to={`/u/${userId}/history`}
           className="text-sm text-slate-400 hover:text-slate-600 hover:underline dark:hover:text-slate-200"
         >
           History →
@@ -195,7 +179,7 @@ export default function DashboardPage() {
           <h1 className="text-xl font-bold">{user.name}&apos;s hydration today</h1>
           <p className="text-xs text-slate-400">
             Goal auto-estimated from gender/height/weight - not medical advice, adjustable below or in{" "}
-            <Link href="/profiles/manage" className="underline">
+            <Link to="/profiles/manage" className="underline">
               Manage profiles
             </Link>
             .
@@ -226,9 +210,7 @@ export default function DashboardPage() {
       </div>
 
       <section className="z-10">
-        <h2 className="mb-2 text-sm font-semibold text-slate-500 dark:text-slate-400">
-          Quick add a drink
-        </h2>
+        <h2 className="mb-2 text-sm font-semibold text-slate-500 dark:text-slate-400">Quick add a drink</h2>
         <div className="flex flex-wrap gap-3">
           {drinkTypes.map((d) => (
             <QuickAddButton
@@ -256,12 +238,8 @@ export default function DashboardPage() {
       </section>
 
       <section className="z-10">
-        <h2 className="mb-2 text-sm font-semibold text-slate-500 dark:text-slate-400">
-          Logged today
-        </h2>
-        {todayLogs.length === 0 && (
-          <p className="text-sm text-slate-400">Nothing logged yet today.</p>
-        )}
+        <h2 className="mb-2 text-sm font-semibold text-slate-500 dark:text-slate-400">Logged today</h2>
+        {todayLogs.length === 0 && <p className="text-sm text-slate-400">Nothing logged yet today.</p>}
         <ul className="flex flex-col gap-2">
           {todayLogs.map((l) => (
             <li
@@ -274,7 +252,7 @@ export default function DashboardPage() {
                   {Math.round(l.ozAmount * 10) / 10} fl oz
                 </span>
                 <button
-                  onClick={() => deleteLog(l.id)}
+                  onClick={() => removeLog(l.id)}
                   className="text-xs text-slate-400 hover:text-rose-500"
                   aria-label="Remove entry"
                 >
@@ -292,7 +270,7 @@ export default function DashboardPage() {
           {profiles
             .filter((p) => p.id !== userId)
             .map((p) => (
-              <Link key={p.id} href={`/u/${p.id}`} title={p.name}>
+              <Link key={p.id} to={`/u/${p.id}`} title={p.name}>
                 <ProfileAvatar name={p.name} color={p.avatarColor} size={32} />
               </Link>
             ))}

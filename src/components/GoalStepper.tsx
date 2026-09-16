@@ -1,6 +1,5 @@
-"use client";
-
 import { useState } from "react";
+import { updateProfile } from "@/lib/db";
 
 interface GoalStepperProps {
   userId: number;
@@ -32,16 +31,9 @@ export default function GoalStepper({
   async function patchGoal(goalOverrideOz: number | null) {
     setBusy(true);
     try {
-      const res = await fetch(`/api/profiles/${userId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ goalOverrideOz }),
-      });
-      if (res.ok) {
-        const updated = await res.json();
-        const effective = updated.goalOverrideOz ?? updated.computedGoalOz;
-        onChange(effective, updated.goalOverrideOz != null);
-      }
+      const updated = await updateProfile(userId, { goalOverrideOz });
+      const effective = updated.goalOverrideOz ?? updated.computedGoalOz;
+      onChange(effective, updated.goalOverrideOz != null);
     } finally {
       setBusy(false);
     }

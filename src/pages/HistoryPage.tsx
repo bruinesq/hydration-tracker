@@ -1,9 +1,7 @@
-"use client";
-
-import Link from "next/link";
-import { useParams } from "next/navigation";
+import { Link, useParams } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
 import HistoryChart, { type DayTotal } from "@/components/HistoryChart";
+import { getSummary } from "@/lib/db";
 import { formatDateLabel, localDateKey } from "@/lib/date";
 
 interface RawEntry {
@@ -19,17 +17,15 @@ export default function HistoryPage() {
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    fetch(`/api/summary/${userId}`)
-      .then((r) => r.json())
-      .then((data) => {
-        setGoal(data.goal ?? 0);
-        setEntries(data.entries ?? []);
-        setLoaded(true);
-      });
+    getSummary(userId).then((data) => {
+      setGoal(data.goal ?? 0);
+      setEntries(data.entries ?? []);
+      setLoaded(true);
+    });
   }, [userId]);
 
-  // Bucket by LOCAL calendar day (the browser's timezone), not the server's -
-  // see src/lib/date.ts. Otherwise an evening log can land on the wrong day.
+  // Bucket by LOCAL calendar day (the browser's timezone), not UTC - see
+  // src/lib/date.ts. Otherwise an evening log can land on the wrong day.
   const days: DayTotal[] = useMemo(() => {
     const byDay = new Map<string, number>();
     for (const e of entries) {
@@ -48,7 +44,7 @@ export default function HistoryPage() {
 
   return (
     <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col px-4 py-8">
-      <Link href={`/u/${userId}`} className="mb-6 text-sm text-sky-500 hover:underline">
+      <Link to={`/u/${userId}`} className="mb-6 text-sm text-sky-500 hover:underline">
         ← Back to today
       </Link>
       <h1 className="mb-6 text-2xl font-bold text-sky-600 dark:text-sky-300">History</h1>
@@ -61,9 +57,7 @@ export default function HistoryPage() {
 
       {loaded && days.length > 0 && (
         <div className="flex flex-col gap-1.5">
-          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
-            All days
-          </p>
+          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">All days</p>
           {[...days].reverse().map((d) => {
             const met = d.totalOz >= goal;
             return (

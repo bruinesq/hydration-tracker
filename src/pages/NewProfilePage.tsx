@@ -1,13 +1,12 @@
-"use client";
-
-import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
+import { createProfile } from "@/lib/db";
 import { AVATAR_COLORS } from "@/lib/types";
 import type { Gender } from "@/lib/types";
 
 export default function NewProfilePage() {
-  const router = useRouter();
+  const navigate = useNavigate();
   const [name, setName] = useState("");
   const [gender, setGender] = useState<Gender>("female");
   const [feet, setFeet] = useState(5);
@@ -25,16 +24,8 @@ export default function NewProfilePage() {
     const heightIn = feet * 12 + inches;
 
     try {
-      const res = await fetch("/api/profiles", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, gender, heightIn, weightLb, avatarColor }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data?.error?._errors?.[0] ?? data?.error ?? "Something went wrong");
-      }
-      router.push(`/u/${data.id}`);
+      const created = await createProfile({ name, gender, heightIn, weightLb, avatarColor });
+      navigate(`/u/${created.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
       setSubmitting(false);
@@ -49,9 +40,7 @@ export default function NewProfilePage() {
         onSubmit={handleSubmit}
         className="w-full max-w-md rounded-2xl bg-white/90 p-6 shadow-lg backdrop-blur dark:bg-slate-800/90"
       >
-        <h1 className="mb-1 text-2xl font-bold text-sky-600 dark:text-sky-300">
-          Add a profile
-        </h1>
+        <h1 className="mb-1 text-2xl font-bold text-sky-600 dark:text-sky-300">Add a profile</h1>
         <p className="mb-6 text-sm text-slate-500 dark:text-slate-400">
           Used only to estimate a personalized daily fluid goal. Not medical advice - you can
           always override the goal later.
