@@ -2,15 +2,24 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import WaterGlass from "@/components/WaterGlass";
 import Bubbles from "@/components/Bubbles";
 import Celebration from "@/components/Celebration";
 import QuickAddButton from "@/components/QuickAddButton";
 import FoodPicker from "@/components/FoodPicker";
+import ManualEntryForm from "@/components/ManualEntryForm";
+import GoalStepper from "@/components/GoalStepper";
+import ReminderPopup from "@/components/ReminderPopup";
 import ProfileAvatar from "@/components/ProfileAvatar";
 import type { DrinkType, FoodItem, LogEntry, UserProfile } from "@/lib/types";
 import { effectiveGoal } from "@/lib/types";
+import { localDateKey, localDayStartMs } from "@/lib/date";
+
+const REMINDER_WINDOW_START_HOUR = 7; // 7am
+const REMINDER_WINDOW_END_HOUR = 19; // 7pm
+const REMINDER_INTERVAL_MS = 3 * 60 * 60 * 1000; // 3 hours
+const CHECK_INTERVAL_MS = 60 * 1000; // poll once a minute
 
 export default function DashboardPage() {
   const params = useParams<{ userId: string }>();
@@ -22,21 +31,29 @@ export default function DashboardPage() {
   const [foods, setFoods] = useState<FoodItem[]>([]);
   const [todayLogs, setTodayLogs] = useState<LogEntry[]>([]);
   const [showCelebration, setShowCelebration] = useState(false);
+  const [showReminder, setShowReminder] = useState(false);
+  const [notifPermission, setNotifPermission] = useState<NotificationPermission | "unsupported">(
+    "default"
+  );
   const hasCelebrated = useRef(false);
+  const loadedDateKey = useRef<string>(localDateKey(new Date()));
+  const lastReminderAt = useRef<number | null>(null);
 
-  async function loadAll() {
+  const loadAll = useCallback(async () => {
+    loadedDateKey.current = localDateKey(new Date());
+    const dayStartMs = localDayStartMs();
     const [profilesRes, drinksRes, foodsRes, logsRes] = await Promise.all([
       fetch("/api/profiles").then((r) => r.json()),
       fetch("/api/drink-types").then((r) => r.json()),
       fetch("/api/food-items").then((r) => r.json()),
-      fetch(`/api/logs?userId=${userId}`).then((r) => r.json()),
+      fetch(`/api/logs?userId=${userId}&dayStartMs=${dayStartMs}`).then((r) => r.json()),
     ]);
     setProfiles(profilesRes);
     setUser(profilesRes.find((p: UserProfile) => p.id === userId) ?? null);
     setDrinkTypes(drinksRes);
     setFoods(foodsRes);
     setTodayLogs(logsRes);
-  }
+  }, [userId]);
 
   useEffect(() => {
     hasCelebrated.current = false;
@@ -45,8 +62,71 @@ export default function DashboardPage() {
     // render - safe to suppress this rule here.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     loadAll();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId]);
+  }, [loadAll]);
+
+  // Daily reset: the meter is always just "today's logs" (see loadAll), so
+  // there's nothing to reset server-side - but if this tab is left open
+  // past midnight, poll for the local calendar day changing and refetch so
+  // the glass drops back to empty without needing a manual refresh.
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const nowKey = localDateKey(new Date());
+      if (nowKey !== loadedDateKey.current) {
+        loadAll();
+      }
+    }, CHECK_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [loadAll]);
+
+  useEffect(() => {
+    // Deliberately effect-based rather than a lazy useState initializer:
+    // this reads a browser-only API (Notification), and the server always
+    // renders the "default" state - doing this in an effect keeps the
+    // server and first client render identical (no hydration mismatch),
+    // then updates once we're safely past hydration.
+    if (typeof window === "undefined" || !("Notification" in window)) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setNotifPermission("unsupported");
+      return;
+    }
+    setNotifPermission(Notification.permission);
+  }, []);
+
+  // Hydration reminder: if it's between 7am-7pm and nothing has been logged
+  // in the last 3 hours (and we haven't already reminded in the last 3
+  // hours), nudge the user. This only fires while this tab is open - a true
+  // notification when the app/browser is fully closed would need a
+  // service worker + push subscriptions, which is a bigger addition.
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = new Date();
+      const hour = now.getHours();
+      if (hour < REMINDER_WINDOW_START_HOUR || hour >= REMINDER_WINDOW_END_HOUR) return;
+
+      const mostRecentLogMs =
+        todayLogs.length > 0 ? new Date(todayLogs[0].loggedAt).getTime() : undefined;
+      const sevenAmToday = new Date(now);
+      sevenAmToday.setHours(REMINDER_WINDOW_START_HOUR, 0, 0, 0);
+      const baselineMs = mostRecentLogMs ?? sevenAmToday.getTime();
+
+      const sinceLastLog = now.getTime() - baselineMs;
+      const sinceLastReminder = lastReminderAt.current
+        ? now.getTime() - lastReminderAt.current
+        : Infinity;
+
+      if (sinceLastLog >= REMINDER_INTERVAL_MS && sinceLastReminder >= REMINDER_INTERVAL_MS) {
+        lastReminderAt.current = now.getTime();
+        if (notifPermission === "granted") {
+          new Notification("💧 Time to hydrate!", {
+            body: "You haven't logged anything in a few hours.",
+          });
+        }
+        setShowReminder(true);
+        setTimeout(() => setShowReminder(false), 8000);
+      }
+    }, CHECK_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [todayLogs, notifPermission]);
 
   const totalOz = todayLogs.reduce((sum, l) => sum + l.ozAmount, 0);
   const goal = user ? effectiveGoal(user) : 0;
@@ -78,6 +158,11 @@ export default function DashboardPage() {
     await fetch(`/api/logs/${id}`, { method: "DELETE" });
   }
 
+  function requestNotifications() {
+    if (typeof window === "undefined" || !("Notification" in window)) return;
+    Notification.requestPermission().then(setNotifPermission);
+  }
+
   if (!user) {
     return (
       <main className="flex flex-1 items-center justify-center">
@@ -90,6 +175,7 @@ export default function DashboardPage() {
     <main className="relative mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 overflow-hidden px-4 py-8">
       <Bubbles count={8} />
       <Celebration show={showCelebration} />
+      <ReminderPopup show={showReminder} onDismiss={() => setShowReminder(false)} />
 
       <header className="z-10 flex items-center justify-between">
         <Link href="/" className="text-sm text-sky-500 hover:underline">
@@ -108,7 +194,7 @@ export default function DashboardPage() {
         <div>
           <h1 className="text-xl font-bold">{user.name}&apos;s hydration today</h1>
           <p className="text-xs text-slate-400">
-            Goal auto-estimated from gender/height/weight - not medical advice, editable in{" "}
+            Goal auto-estimated from gender/height/weight - not medical advice, adjustable below or in{" "}
             <Link href="/profiles/manage" className="underline">
               Manage profiles
             </Link>
@@ -117,8 +203,26 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <div className="z-10 flex justify-center">
+      <div className="z-10 flex flex-col items-center gap-3">
         <WaterGlass percent={percent} ozSoFar={totalOz} goalOz={goal} />
+        <GoalStepper
+          userId={userId}
+          computedGoalOz={user.computedGoalOz}
+          currentGoalOz={goal}
+          isOverridden={user.goalOverrideOz != null}
+          onChange={(newGoal, isOverridden) =>
+            setUser((prev) => (prev ? { ...prev, goalOverrideOz: isOverridden ? newGoal : null } : prev))
+          }
+        />
+        {notifPermission === "default" && (
+          <button
+            type="button"
+            onClick={requestNotifications}
+            className="text-[11px] text-slate-400 underline-offset-2 hover:underline"
+          >
+            🔔 Enable hydration reminder notifications
+          </button>
+        )}
       </div>
 
       <section className="z-10">
@@ -145,6 +249,10 @@ export default function DashboardPage() {
             addLog("food", food.id, `${food.name} (${servings}x ${food.servingLabel})`, food.ozPerServing * servings)
           }
         />
+      </section>
+
+      <section className="z-10">
+        <ManualEntryForm onAdd={(label, ozAmount) => addLog("drink", null, label, ozAmount)} />
       </section>
 
       <section className="z-10">

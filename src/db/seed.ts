@@ -3,6 +3,7 @@ import { drinkTypes, foodItems } from "./schema";
 
 const DRINKS = [
   { name: "Water", icon: "💧", defaultOz: 8 },
+  { name: "Water (12 oz)", icon: "💧", defaultOz: 12 },
   { name: "Coffee", icon: "☕", defaultOz: 8 },
   { name: "Tea", icon: "🍵", defaultOz: 8 },
   { name: "Soda", icon: "🥤", defaultOz: 12 },
@@ -87,22 +88,33 @@ const FOODS = [
   },
 ];
 
-async function main() {
-  const existingDrinks = await db.select().from(drinkTypes);
-  if (existingDrinks.length === 0) {
-    await db.insert(drinkTypes).values(DRINKS.map((d) => ({ ...d, isCustom: 0 })));
-    console.log(`Seeded ${DRINKS.length} drink types.`);
-  } else {
-    console.log(`Drink types already present (${existingDrinks.length}), skipping.`);
+/**
+ * Inserts only the rows whose `name` isn't already present, so this script
+ * can be re-run safely after adding new items to DRINKS/FOODS above -
+ * existing rows (and any edits made to them later via the app) are left
+ * alone.
+ */
+async function seedMissing<T extends { name: string }>(
+  table: typeof drinkTypes | typeof foodItems,
+  items: T[],
+  label: string
+) {
+  const existing = await db.select({ name: table.name }).from(table);
+  const existingNames = new Set(existing.map((r) => r.name));
+  const missing = items.filter((item) => !existingNames.has(item.name));
+
+  if (missing.length === 0) {
+    console.log(`${label}: all ${items.length} already present, nothing to add.`);
+    return;
   }
 
-  const existingFoods = await db.select().from(foodItems);
-  if (existingFoods.length === 0) {
-    await db.insert(foodItems).values(FOODS);
-    console.log(`Seeded ${FOODS.length} food items.`);
-  } else {
-    console.log(`Food items already present (${existingFoods.length}), skipping.`);
-  }
+  await db.insert(table).values(missing as never);
+  console.log(`${label}: added ${missing.length} new (${missing.map((m) => m.name).join(", ")}).`);
+}
+
+async function main() {
+  await seedMissing(drinkTypes, DRINKS.map((d) => ({ ...d, isCustom: 0 })), "Drink types");
+  await seedMissing(foodItems, FOODS, "Food items");
 }
 
 main()

@@ -13,23 +13,31 @@ const createSchema = z.object({
 });
 
 /**
- * GET /api/logs?userId=1&date=YYYY-MM-DD
- * Returns that user's log entries for the given day (defaults to today,
- * using the server's local date - fine for a single-household app).
+ * GET /api/logs?userId=1&dayStartMs=<epoch ms>
+ *
+ * `dayStartMs` should be the start of the caller's LOCAL calendar day (see
+ * src/lib/date.ts#localDayStartMs), computed in the browser. The server
+ * doesn't know the user's timezone, so it never guesses "today" itself -
+ * if dayStartMs is omitted it falls back to the server's own local day,
+ * which is only meant for quick manual testing.
  */
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const userId = Number(searchParams.get("userId"));
-  const dateStr = searchParams.get("date");
+  const dayStartMsParam = searchParams.get("dayStartMs");
 
   if (!userId) {
     return NextResponse.json({ error: "userId is required" }, { status: 400 });
   }
 
-  const dayStart = dateStr ? new Date(`${dateStr}T00:00:00`) : new Date();
-  dayStart.setHours(0, 0, 0, 0);
-  const dayEnd = new Date(dayStart);
-  dayEnd.setDate(dayEnd.getDate() + 1);
+  let dayStart: Date;
+  if (dayStartMsParam) {
+    dayStart = new Date(Number(dayStartMsParam));
+  } else {
+    dayStart = new Date();
+    dayStart.setHours(0, 0, 0, 0);
+  }
+  const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
 
   const rows = await db
     .select()
