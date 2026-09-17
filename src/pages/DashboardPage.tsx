@@ -225,16 +225,16 @@ export default function DashboardPage() {
       </section>
 
       <section className="z-10">
+        <ManualEntryForm onAdd={(label, ozAmount) => addLog("drink", null, label, ozAmount)} />
+      </section>
+
+      <section className="z-10">
         <FoodPicker
           foods={foods}
           onAdd={(food, servings) =>
             addLog("food", food.id, `${food.name} (${servings}x ${food.servingLabel})`, food.ozPerServing * servings)
           }
         />
-      </section>
-
-      <section className="z-10">
-        <ManualEntryForm onAdd={(label, ozAmount) => addLog("drink", null, label, ozAmount)} />
       </section>
 
       <section className="z-10">

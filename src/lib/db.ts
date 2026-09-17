@@ -160,23 +160,30 @@ function mapDrink(r: DrinkRow): DrinkType {
 
 // Quick-add display order/visibility, independent of insertion order in the
 // database (12 oz Water was added after the original seed, so its id sorts
-// last - this puts it right after the 8 oz cup instead). Hidden entries stay
-// in the database untouched; they're just left out of the quick-add menu.
+// last - this puts it in the right spot regardless). Hidden entries stay in
+// the database untouched; they're just left out of the quick-add menu.
 const DRINK_DISPLAY_ORDER: Record<string, number> = {
-  Water: 0,
-  "Water (12 oz)": 1,
-  Coffee: 2,
-  Tea: 3,
-  Juice: 4,
+  "Water (12 oz)": 0,
+  Coffee: 1,
+  Tea: 2,
+  Juice: 3,
 };
-const HIDDEN_DRINK_NAMES = new Set(["Soda", "Sports Drink", "Milk"]);
+const HIDDEN_DRINK_NAMES = new Set(["Water", "Soda", "Sports Drink", "Milk"]);
+// Display-only relabeling - the underlying row name stays "Water (12 oz)"
+// (so it keeps sorting/matching correctly and past log labels are
+// unaffected), but the quick-add button just shows "Water" since the
+// sublabel underneath it already reads "12 fl oz".
+const DRINK_DISPLAY_NAME: Record<string, string> = {
+  "Water (12 oz)": "Water",
+};
 
 export async function getDrinkTypes(): Promise<DrinkType[]> {
   const result = (await sql`SELECT * FROM drink_types ORDER BY id`) as RawResult;
   return toObjects<DrinkRow>(result)
     .map(mapDrink)
     .filter((d) => !HIDDEN_DRINK_NAMES.has(d.name))
-    .sort((a, b) => (DRINK_DISPLAY_ORDER[a.name] ?? 99) - (DRINK_DISPLAY_ORDER[b.name] ?? 99));
+    .sort((a, b) => (DRINK_DISPLAY_ORDER[a.name] ?? 99) - (DRINK_DISPLAY_ORDER[b.name] ?? 99))
+    .map((d) => ({ ...d, name: DRINK_DISPLAY_NAME[d.name] ?? d.name }));
 }
 
 // ── Food items ─────────────────────────────────────────────────────

@@ -21,7 +21,7 @@ export default function FoodPicker({ foods, onAdd, disabled }: FoodPickerProps) 
   const selected = foods.find((f) => f.id === selectedId) ?? null;
 
   return (
-    <div className="rounded-2xl border border-emerald-100 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+    <div className="rounded-2xl border border-sky-300 bg-sky-200 p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
       <p className="mb-2 text-sm font-semibold text-slate-600 dark:text-slate-300">
         Log food (converted to fluid oz)
       </p>

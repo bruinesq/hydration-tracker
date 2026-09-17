@@ -35,7 +35,7 @@ export default function ManualEntryForm({ onAdd, disabled }: ManualEntryFormProp
   return (
     <form
       onSubmit={submit}
-      className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800"
+      className="rounded-2xl border border-sky-300 bg-sky-200 p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800"
     >
       <p className="mb-2 text-sm font-semibold text-slate-600 dark:text-slate-300">
         Other (log anything by hand)

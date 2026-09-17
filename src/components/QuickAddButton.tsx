@@ -21,7 +21,7 @@ export default function QuickAddButton({ icon, label, sublabel, onClick, disable
         setRippleKey((k) => k + 1);
         onClick();
       }}
-      className="relative flex flex-col items-center gap-1 overflow-hidden rounded-2xl border border-sky-100 bg-white px-4 py-3 shadow-sm transition hover:shadow-md disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800"
+      className="relative flex flex-col items-center gap-1 overflow-hidden rounded-2xl border border-sky-300 bg-sky-200 px-4 py-3 shadow-sm transition hover:shadow-md disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800"
     >
       <motion.span
         key={rippleKey}
