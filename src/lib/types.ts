@@ -32,11 +32,18 @@ export interface FoodItem {
 export interface LogEntry {
   id: number;
   userId: number;
-  entryType: "drink" | "food";
+  entryType: "drink" | "food" | "medication";
   referenceId: number | null;
   label: string;
   ozAmount: number;
   loggedAt: string;
+}
+
+export interface Medication {
+  id: number;
+  userId: number;
+  name: string;
+  createdAt: string;
 }
 
 export function effectiveGoal(user: UserProfile): number {

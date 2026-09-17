@@ -9,8 +9,20 @@ import ManualEntryForm from "@/components/ManualEntryForm";
 import GoalStepper from "@/components/GoalStepper";
 import ReminderPopup from "@/components/ReminderPopup";
 import ProfileAvatar from "@/components/ProfileAvatar";
-import { createLog, deleteLog, getDrinkTypes, getFoodItems, getLogsForDay, getProfiles } from "@/lib/db";
-import type { DrinkType, FoodItem, LogEntry, UserProfile } from "@/lib/types";
+import MedicationButton from "@/components/MedicationButton";
+import MedicationEditor from "@/components/MedicationEditor";
+import {
+  createLog,
+  createMedication,
+  deleteLog,
+  deleteMedication,
+  getDrinkTypes,
+  getFoodItems,
+  getLogsForDay,
+  getMedications,
+  getProfiles,
+} from "@/lib/db";
+import type { DrinkType, FoodItem, LogEntry, Medication, UserProfile } from "@/lib/types";
 import { effectiveGoal } from "@/lib/types";
 import { localDateKey, localDayStartMs } from "@/lib/date";
 
@@ -27,6 +39,8 @@ export default function DashboardPage() {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [drinkTypes, setDrinkTypes] = useState<DrinkType[]>([]);
   const [foods, setFoods] = useState<FoodItem[]>([]);
+  const [medications, setMedications] = useState<Medication[]>([]);
+  const [editingMeds, setEditingMeds] = useState(false);
   const [todayLogs, setTodayLogs] = useState<LogEntry[]>([]);
   const [showCelebration, setShowCelebration] = useState(false);
   const [showReminder, setShowReminder] = useState(false);
@@ -40,16 +54,18 @@ export default function DashboardPage() {
   const loadAll = useCallback(async () => {
     loadedDateKey.current = localDateKey(new Date());
     const dayStartMs = localDayStartMs();
-    const [profilesRes, drinksRes, foodsRes, logsRes] = await Promise.all([
+    const [profilesRes, drinksRes, foodsRes, medsRes, logsRes] = await Promise.all([
       getProfiles(),
       getDrinkTypes(),
       getFoodItems(),
+      getMedications(userId),
       getLogsForDay(userId, dayStartMs),
     ]);
     setProfiles(profilesRes);
     setUser(profilesRes.find((p) => p.id === userId) ?? null);
     setDrinkTypes(drinksRes);
     setFoods(foodsRes);
+    setMedications(medsRes);
     setTodayLogs(logsRes);
   }, [userId]);
 
@@ -94,8 +110,10 @@ export default function DashboardPage() {
       const hour = now.getHours();
       if (hour < REMINDER_WINDOW_START_HOUR || hour >= REMINDER_WINDOW_END_HOUR) return;
 
-      const mostRecentLogMs =
-        todayLogs.length > 0 ? new Date(todayLogs[0].loggedAt).getTime() : undefined;
+      // Medication check-offs aren't fluid intake, so they shouldn't reset
+      // this timer - only drink/food entries count toward "logged something".
+      const mostRecentFluidLog = todayLogs.find((l) => l.entryType !== "medication");
+      const mostRecentLogMs = mostRecentFluidLog ? new Date(mostRecentFluidLog.loggedAt).getTime() : undefined;
       const sevenAmToday = new Date(now);
       sevenAmToday.setHours(REMINDER_WINDOW_START_HOUR, 0, 0, 0);
       const baselineMs = mostRecentLogMs ?? sevenAmToday.getTime();
@@ -119,7 +137,11 @@ export default function DashboardPage() {
     return () => clearInterval(interval);
   }, [todayLogs, notifPermission]);
 
-  const totalOz = todayLogs.reduce((sum, l) => sum + l.ozAmount, 0);
+  // Medication "taken" events are logged in the same table (so they get a
+  // timestamp and reset daily the same way), but they aren't fluid intake -
+  // keep them out of the glass total and the "Logged today" list.
+  const fluidLogs = todayLogs.filter((l) => l.entryType !== "medication");
+  const totalOz = fluidLogs.reduce((sum, l) => sum + l.ozAmount, 0);
   const goal = user ? effectiveGoal(user) : 0;
   const percent = goal > 0 ? (totalOz / goal) * 100 : 0;
 
@@ -132,7 +154,12 @@ export default function DashboardPage() {
     }
   }, [totalOz, goal]);
 
-  async function addLog(entryType: "drink" | "food", referenceId: number | null, label: string, ozAmount: number) {
+  async function addLog(
+    entryType: "drink" | "food" | "medication",
+    referenceId: number | null,
+    label: string,
+    ozAmount: number
+  ) {
     const created = await createLog({ userId, entryType, referenceId, label, ozAmount });
     setTodayLogs((prev) => [created, ...prev]);
   }
@@ -140,6 +167,16 @@ export default function DashboardPage() {
   async function removeLog(id: number) {
     setTodayLogs((prev) => prev.filter((l) => l.id !== id));
     await deleteLog(id);
+  }
+
+  async function addMedication(name: string) {
+    const created = await createMedication(userId, name);
+    setMedications((prev) => [...prev, created]);
+  }
+
+  async function removeMedication(id: number) {
+    setMedications((prev) => prev.filter((m) => m.id !== id));
+    await deleteMedication(id);
   }
 
   function requestNotifications() {
@@ -210,7 +247,19 @@ export default function DashboardPage() {
       </div>
 
       <section className="z-10">
-        <h2 className="mb-2 text-sm font-semibold text-slate-500 dark:text-slate-400">Quick add a drink</h2>
+        <div className="mb-2 flex items-center gap-2">
+          <h2 className="text-sm font-semibold text-slate-500 dark:text-slate-400">Quick Add</h2>
+          <button
+            type="button"
+            onClick={() => setEditingMeds((v) => !v)}
+            aria-label="Edit medications"
+            title="Edit medications"
+            className="text-slate-400 transition hover:text-violet-500"
+          >
+            ✏️
+          </button>
+        </div>
+
         <div className="flex flex-wrap gap-3">
           {drinkTypes.map((d) => (
             <QuickAddButton
@@ -222,6 +271,42 @@ export default function DashboardPage() {
             />
           ))}
         </div>
+
+        {editingMeds ? (
+          <div className="mt-4">
+            <MedicationEditor
+              medications={medications}
+              onAdd={addMedication}
+              onRemove={removeMedication}
+              onClose={() => setEditingMeds(false)}
+            />
+          </div>
+        ) : (
+          medications.length > 0 && (
+            <>
+              <p className="mb-2 mt-4 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                Medications
+              </p>
+              <div className="flex flex-wrap gap-3">
+                {medications.map((m) => {
+                  const takenLog = todayLogs.find(
+                    (l) => l.entryType === "medication" && l.referenceId === m.id
+                  );
+                  return (
+                    <MedicationButton
+                      key={m.id}
+                      name={m.name}
+                      takenAt={takenLog?.loggedAt ?? null}
+                      onToggle={() =>
+                        takenLog ? removeLog(takenLog.id) : addLog("medication", m.id, m.name, 0)
+                      }
+                    />
+                  );
+                })}
+              </div>
+            </>
+          )
+        )}
       </section>
 
       <section className="z-10">
@@ -239,9 +324,9 @@ export default function DashboardPage() {
 
       <section className="z-10">
         <h2 className="mb-2 text-sm font-semibold text-slate-500 dark:text-slate-400">Logged today</h2>
-        {todayLogs.length === 0 && <p className="text-sm text-slate-400">Nothing logged yet today.</p>}
+        {fluidLogs.length === 0 && <p className="text-sm text-slate-400">Nothing logged yet today.</p>}
         <ul className="flex flex-col gap-2">
-          {todayLogs.map((l) => (
+          {fluidLogs.map((l) => (
             <li
               key={l.id}
               className="flex items-center justify-between rounded-xl bg-white/80 px-4 py-2 text-sm shadow-sm dark:bg-slate-800/80"

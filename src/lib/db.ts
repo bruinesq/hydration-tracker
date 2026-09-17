@@ -1,6 +1,6 @@
 import { neon } from "@neondatabase/serverless";
 import { computeGoalOz } from "./goal";
-import type { DrinkType, FoodItem, Gender, LogEntry, UserProfile } from "./types";
+import type { DrinkType, FoodItem, Gender, LogEntry, Medication, UserProfile } from "./types";
 
 /**
  * This is a static site with no server component at all (GitHub Pages +
@@ -229,7 +229,7 @@ function mapLog(r: LogRow): LogEntry {
   return {
     id: r.id,
     userId: r.user_id,
-    entryType: r.entry_type as "drink" | "food",
+    entryType: r.entry_type as "drink" | "food" | "medication",
     referenceId: r.reference_id,
     label: r.label,
     ozAmount: r.oz_amount,
@@ -255,7 +255,7 @@ export async function getLogsForDay(userId: number, dayStartMs: number): Promise
 
 export async function createLog(input: {
   userId: number;
-  entryType: "drink" | "food";
+  entryType: "drink" | "food" | "medication";
   referenceId: number | null;
   label: string;
   ozAmount: number;
@@ -290,7 +290,7 @@ export async function getSummary(
   const windowStart = new Date(Date.now() - HISTORY_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
   const result = (await sql`
     SELECT oz_amount, logged_at FROM logs
-    WHERE user_id = ${userId} AND logged_at >= ${windowStart}
+    WHERE user_id = ${userId} AND logged_at >= ${windowStart} AND entry_type != 'medication'
   `) as RawResult;
   const entries = toObjects<{ oz_amount: number; logged_at: string }>(result).map((r) => ({
     ozAmount: r.oz_amount,
@@ -299,4 +299,44 @@ export async function getSummary(
 
   const goal = user.goalOverrideOz ?? user.computedGoalOz;
   return { goal, entries };
+}
+
+// ── Medications ────────────────────────────────────────────────────
+//
+// Each profile keeps its own free-form list of daily medications (add/
+// remove any time - this is not a fixed catalog like drink_types/
+// food_items). "Taken today" isn't a column on this table; it's derived
+// from whether a 'medication' row exists in `logs` for that
+// medication_id within today's local day window, exactly the same
+// day-scoping used for drink/food entries (see getLogsForDay). That
+// means marking one taken is just a normal createLog() call, and it
+// naturally resets every day with no extra cleanup job needed.
+
+interface MedicationRow {
+  id: number;
+  user_id: number;
+  name: string;
+  created_at: string;
+}
+
+function mapMedication(r: MedicationRow): Medication {
+  return { id: r.id, userId: r.user_id, name: r.name, createdAt: r.created_at };
+}
+
+export async function getMedications(userId: number): Promise<Medication[]> {
+  const result = (await sql`
+    SELECT * FROM medications WHERE user_id = ${userId} ORDER BY id
+  `) as RawResult;
+  return toObjects<MedicationRow>(result).map(mapMedication);
+}
+
+export async function createMedication(userId: number, name: string): Promise<Medication> {
+  const result = (await sql`
+    INSERT INTO medications (user_id, name) VALUES (${userId}, ${name}) RETURNING *
+  `) as RawResult;
+  return mapMedication(toObjects<MedicationRow>(result)[0]);
+}
+
+export async function deleteMedication(id: number): Promise<void> {
+  await sql`DELETE FROM medications WHERE id = ${id}`;
 }

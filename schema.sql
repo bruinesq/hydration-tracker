@@ -36,9 +36,20 @@ CREATE TABLE IF NOT EXISTS food_items (
 CREATE TABLE IF NOT EXISTS logs (
   id            SERIAL PRIMARY KEY,
   user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  entry_type    VARCHAR(10) NOT NULL, -- 'drink' | 'food'
+  entry_type    VARCHAR(10) NOT NULL, -- 'drink' | 'food' | 'medication'
   reference_id  INTEGER,
   label         VARCHAR(80) NOT NULL,
-  oz_amount     REAL NOT NULL,
+  oz_amount     REAL NOT NULL, -- 0 for 'medication' rows; they aren't fluid intake
   logged_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Added for the per-profile daily medication list (free-form add/remove).
+-- "Taken today" isn't a column here - it's derived from whether a
+-- 'medication' row exists in `logs` for this medication's id within
+-- today's local day window, same as any other logged entry.
+CREATE TABLE IF NOT EXISTS medications (
+  id          SERIAL PRIMARY KEY,
+  user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name        VARCHAR(80) NOT NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
